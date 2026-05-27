@@ -479,6 +479,11 @@ def create_event(request):
                 "message": "Missing required fields"
             }, status=400)
 
+        image_url = None
+        if image:
+            upload_result = cloudinary.uploader.upload(image)
+            image_url = upload_result.get("secure_url")
+
         event = Event.objects.create(
             user=user,
             title=title,
@@ -493,7 +498,7 @@ def create_event(request):
             total_tickets=total_tickets,
             available_tickets=total_tickets,
             contact_email=contact_email,
-            image=image if image else Event._meta.get_field("image").default
+            image=image_url
         )
 
         return JsonResponse({
@@ -601,4 +606,522 @@ def get_all_events(request):
         return JsonResponse({
             "message": "Failed to fetch events",
             "error": str(e)
+        }, status=500) 
+
+
+# get organizer events
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_organizer_events(request):
+
+    try:
+
+        user = request.user
+
+        # Only organizers
+        if user.role != "organizer":
+
+            return JsonResponse({
+                "message": "Only organizers can access this"
+            }, status=403)
+
+        events = Event.objects.filter(
+            user=user
+        ).order_by('-created_at')
+
+        event_list = []
+
+        for event in events:
+
+            # tickets sold
+            sold_tickets = (
+                event.total_tickets -
+                event.available_tickets
+            )
+
+            # revenue
+            revenue = sold_tickets * event.price
+
+            event_list.append({
+
+                "id": event.id,
+
+                "title": event.title,
+
+                "description": event.description,
+
+                "category": event.category,
+
+                "county": event.county,
+
+                "location": event.location,
+
+                "date": str(event.date),
+
+                "time": str(event.time),
+
+                "price": event.price,
+
+                "total_tickets": event.total_tickets,
+
+                "available_tickets": event.available_tickets,
+
+                "tickets_sold": sold_tickets,
+
+                "revenue": revenue,
+
+                "contact_email": event.contact_email,
+
+                "image": event.image,
+
+                "created_at": event.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+
+            })
+
+        return JsonResponse({
+
+            "message": "Organizer events fetched successfully",
+
+            "total_events": len(event_list),
+
+            "events": event_list
+
+        }, status=200)
+
+    except Exception as e:
+
+        return JsonResponse({
+
+            "message": "Failed to fetch organizer events",
+
+            "error": str(e)
+
+        }, status=500)
+
+
+
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.db.models import Sum, F
+from .models import User, Event, Booking, Payment
+import json
+
+
+# =========================
+# CHECK ADMIN
+# =========================
+def is_admin(request):
+    user_id = request.headers.get("User-Id")
+    print("USER ID:", user_id)
+
+    if not user_id:
+        return None
+
+    try:
+        user = User.objects.get(id=user_id)
+        if user.role != "admin":
+            return None
+        print(f"Admin access granted for user: {user.name} (ID: {user.id})")
+        return user
+    except User.DoesNotExist:
+        return None
+
+
+# =========================
+# ADMIN STATS
+# GET /api/admin/stats
+# =========================
+@csrf_exempt
+def admin_stats(request):
+    if request.method != "GET":
+        return JsonResponse({"message": "GET method required"}, status=405)
+
+    admin = is_admin(request)
+
+    if not admin:
+        return JsonResponse({"message": "Unauthorized"}, status=401)
+
+    total_users = User.objects.count()
+    total_events = Event.objects.count()
+
+    total_tickets = Booking.objects.aggregate(
+        total=Sum("quantity")
+    )["total"] or 0
+
+    total_revenue = Payment.objects.filter(
+        status="paid"
+    ).aggregate(
+        total=Sum("amount")
+    )["total"] or 0
+
+    return JsonResponse({
+        "totalUsers": total_users,
+        "totalEvents": total_events,
+        "totalTickets": total_tickets,
+        "totalRevenue": float(total_revenue),
+    })
+
+
+# =========================
+# ADMIN EVENTS
+# GET /api/admin/events
+# =========================
+@csrf_exempt
+def admin_events(request):
+    if request.method != "GET":
+        return JsonResponse({"message": "GET method required"}, status=405)
+
+    admin = is_admin(request)
+
+    if not admin:
+        return JsonResponse({"message": "Unauthorized"}, status=401)
+
+    events = Event.objects.all().order_by("-created_at")
+
+    events_list = []
+
+    for event in events:
+        is_past = event.date < event.created_at.date()
+
+        status = "Active"
+
+        if event.available_tickets <= 0:
+            status = "Sold Out"
+        elif is_past:
+            status = "Ended"
+
+        events_list.append({
+            "id": event.id,
+            "title": event.title,
+            "creator": event.user.name,
+            "date": event.date,
+            "price": event.price,
+            "status": status,
+        })
+
+    return JsonResponse({
+        "events": events_list
+    })
+
+
+# =========================
+# DELETE EVENT
+# DELETE /api/admin/events/<id>
+# =========================
+@csrf_exempt
+def delete_event(request, id):
+    if request.method != "DELETE":
+        return JsonResponse({"message": "DELETE method required"}, status=405)
+
+    admin = is_admin(request)
+
+    if not admin:
+        return JsonResponse({"message": "Unauthorized"}, status=401)
+
+    try:
+        event = Event.objects.get(id=id)
+        event.delete()
+
+        return JsonResponse({
+            "message": "Event deleted successfully"
+        })
+
+    except Event.DoesNotExist:
+        return JsonResponse({
+            "message": "Event not found"
+        }, status=404)
+
+
+# =========================
+# ADMIN USERS
+# GET /api/admin/users
+# =========================
+@csrf_exempt
+def admin_users(request):
+    if request.method != "GET":
+        return JsonResponse({"message": "GET method required"}, status=405)
+
+    admin = is_admin(request)
+
+    if not admin:
+        return JsonResponse({"message": "Unauthorized"}, status=401)
+
+    users = User.objects.all().order_by("-date_joined")
+
+    users_list = []
+
+    for user in users:
+        users_list.append({
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "role": user.role,
+            "createdAt": user.date_joined,
+            "isSuspended": not user.is_active,
+        })
+
+    return JsonResponse({
+        "users": users_list
+    })
+
+
+# =========================
+# SUSPEND USER
+# PATCH /api/admin/users/<id>/suspend
+# =========================
+@csrf_exempt
+def suspend_user(request, id):
+    if request.method != "PATCH":
+        return JsonResponse({"message": "PATCH method required"}, status=405)
+
+    admin = is_admin(request)
+
+    if not admin:
+        return JsonResponse({"message": "Unauthorized"}, status=401)
+
+    try:
+        user = User.objects.get(id=id)
+
+        if user.role == "admin":
+            return JsonResponse({
+                "message": "Cannot suspend admin"
+            }, status=400)
+
+        user.is_active = not user.is_active
+        user.save()
+
+        return JsonResponse({
+            "message": "User updated",
+            "isSuspended": not user.is_active
+        })
+
+    except User.DoesNotExist:
+        return JsonResponse({
+            "message": "User not found"
+        }, status=404)
+
+
+# =========================
+# ADMIN PAYOUTS
+# GET /api/admin/payouts
+# =========================
+@csrf_exempt
+def admin_payouts(request):
+    if request.method != "GET":
+        return JsonResponse({"message": "GET method required"}, status=405)
+
+    admin = is_admin(request)
+
+    if not admin:
+        return JsonResponse({"message": "Unauthorized"}, status=401)
+
+    events = Event.objects.all()
+
+    payouts = []
+
+    for event in events:
+        paid_amount = Payment.objects.filter(
+            booking__event=event,
+            status="paid"
+        ).aggregate(
+            total=Sum("amount")
+        )["total"] or 0
+
+        commission = float(paid_amount) * 0.05
+        payable = float(paid_amount) - commission
+
+        payouts.append({
+            "id": event.id,
+            "title": event.title,
+            "creator": event.user.name,
+            "creatorPhone": event.user.phone_number,
+            "totalRevenue": float(paid_amount),
+            "commission": float(commission),
+            "payable": float(payable),
+            "isPaid": False,
+        })
+
+    return JsonResponse({
+        "payouts": payouts
+    })
+
+
+# =========================
+# MARK PAYOUT PAID
+# PATCH /api/admin/payouts/<id>/pay
+# =========================
+@csrf_exempt
+def mark_payout_paid(request, id):
+    if request.method != "PATCH":
+        return JsonResponse({"message": "PATCH method required"}, status=405)
+
+    admin = is_admin(request)
+
+    if not admin:
+        return JsonResponse({"message": "Unauthorized"}, status=401)
+
+    return JsonResponse({
+        "message": "Payout marked as paid"
+    })
+
+
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+
+from .models import Event, Booking, Payment, User
+
+
+# ================================
+# GET SINGLE EVENT
+# ================================
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def get_single_event(request, id):
+    try:
+        event = Event.objects.get(id=id)
+
+        data = {
+            "id": event.id,
+            "title": event.title,
+            "description": event.description,
+            "category": event.category,
+            "county": event.county,
+            "location": event.location,
+            "date": event.date,
+            "time": event.time,
+            "price": event.price,
+            "totalTickets": event.total_tickets,
+            "availableTickets": event.available_tickets,
+            "organizerName": event.organizer_name,
+            "contactEmail": event.contact_email,
+            "image": event.image,
+            "createdAt": event.created_at,
+        }
+
+        return Response({
+            "success": True,
+            "event": data
+        })
+
+    except Event.DoesNotExist:
+        return Response({
+            "success": False,
+            "message": "Event not found."
+        }, status=404)
+
+
+# ================================
+# BOOK EVENT
+# ================================
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def book_event(request):
+    try:
+        data = request.data
+
+        user_id = data.get("userId")
+        event_id = data.get("eventId")
+        quantity = int(data.get("quantity", 1))
+        phone_number = data.get("phoneNumber")
+
+        guest_name = data.get("guestName")
+        guest_email = data.get("guestEmail")
+
+        # Validate event
+        try:
+            event = Event.objects.get(id=event_id)
+        except Event.DoesNotExist:
+            return Response({
+                "success": False,
+                "message": "Event not found."
+            }, status=404)
+
+        # Validate tickets
+        if event.available_tickets < quantity:
+            return Response({
+                "success": False,
+                "message": "Not enough tickets available."
+            }, status=400)
+
+        # Logged in user
+        user = None
+        if user_id:
+            try:
+                user = User.objects.get(id=user_id)
+
+                guest_name = user.name
+                guest_email = user.email
+
+            except User.DoesNotExist:
+                pass
+
+        # Guest validation
+        if not guest_name:
+            return Response({
+                "success": False,
+                "message": "Guest name is required."
+            }, status=400)
+
+        if not guest_email:
+            return Response({
+                "success": False,
+                "message": "Guest email is required."
+            }, status=400)
+
+        total_amount = quantity * event.price
+
+        # Create booking
+        booking = Booking.objects.create(
+            user=str(user.id) if user else None,
+            event=event,
+            guest_name=guest_name,
+            guest_email=guest_email,
+            quantity=quantity,
+            total_amount=total_amount,
+            phone_number=phone_number,
+            status="confirmed"
+        )
+
+        # Reduce tickets
+        event.available_tickets -= quantity
+        event.save()
+
+        booking.save()
+
+        # Create payment record
+        Payment.objects.create(
+            booking=booking,
+            method="M-Pesa",
+            amount=total_amount,
+            phone_number=phone_number,
+            status="paid"
+        )
+
+        return Response({
+            "success": True,
+            "message": "Booking successful.",
+            "booking": {
+                "id": booking.id,
+                "guestName": booking.guest_name,
+                "guestEmail": booking.guest_email,
+                "quantity": booking.quantity,
+                "totalAmount": booking.total_amount,
+                "phoneNumber": booking.phone_number,
+                "status": booking.status,
+                "createdAt": booking.created_at,
+            },
+            "event": {
+                "id": event.id,
+                "title": event.title,
+                "date": event.date,
+                "location": event.location,
+            }
+        })
+
+    except Exception as e:
+        return Response({
+            "success": False,
+            "message": str(e)
         }, status=500)

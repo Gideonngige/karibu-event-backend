@@ -21,6 +21,8 @@ import cloudinary.api
 
 load_dotenv()
 
+from corsheaders.defaults import default_headers
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -86,6 +88,10 @@ CORS_ALLOW_ALL_ORIGINS = True
 #     "https://admin.nexinditechcompany.online",
 #     "https://api.nexinditechcompany.online",
 # ]
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "User-Id",
+]
 
 ROOT_URLCONF = 'karibuEvent.urls'
 
