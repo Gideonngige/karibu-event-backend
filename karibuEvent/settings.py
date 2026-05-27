@@ -34,7 +34,7 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -118,6 +118,21 @@ DATABASES = {
 }
 
 
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('DATABASE_NAME'),
+        'USER': os.environ.get("DATABASE_USER"),
+        'PASSWORD': os.environ.get("DATABASE_PASSWORD"),
+        'HOST': os.environ.get("DATABASE_HOST"),
+        'PORT': os.environ.get("DATABASE_PORT"),
+        'OPTIONS': {
+            'sslmode': 'require',
+        },
+    }
+}
+
+
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
 
@@ -155,8 +170,8 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 
-# cloudinary.config(
-#   cloud_name = os.environ.get("CLOUDINARY_NAME"),
-#   api_key = os.environ.get("CLOUDINARY_API_KEY"),
-#   api_secret = os.environ.get("CLOUDINARY_API_SECRET")
-# )
+cloudinary.config(
+  cloud_name = os.environ.get("CLOUDINARY_NAME"),
+  api_key = os.environ.get("CLOUDINARY_API_KEY"),
+  api_secret = os.environ.get("CLOUDINARY_API_SECRET")
+)
