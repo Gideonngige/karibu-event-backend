@@ -12,4 +12,6 @@ urlpatterns = [
     path('reset_password/', views.reset_password, name='reset_password'),
     path('send_test_email/', views.send_test_email, name='send_test_email'),
     path('auth_check/', views.auth_check, name='auth_check'),
+    path('create_event/', views.create_event, name='create_event'),
+    path('get_all_events/', views.get_all_events, name='get_all_events'),
 ]

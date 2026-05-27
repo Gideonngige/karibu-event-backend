@@ -79,6 +79,7 @@ def signup(request):
         password = data.get("password")
         full_name = data.get("full_name")
         phone_number = data.get("phone_number")
+        role = data.get("role", "user")
 
         username = email
 
@@ -101,6 +102,7 @@ def signup(request):
             phone_number=phone_number,
             email_verification_token=token,
             email_verified=False,
+            role=role
         )
 
         # create welcome notification
@@ -433,4 +435,172 @@ def delete_account(request):
             "error": str(e)
         }, status=500)
 
+# create event api
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_event(request):
+    try:
+        user = request.user
 
+        # Only organizers can create events
+        if user.role != "organizer":
+            return JsonResponse({
+                "message": "Only organizers can create events"
+            }, status=403)
+
+        data = request.data
+
+        title = data.get("title")
+        organizer_name = data.get("organizer_name")
+        description = data.get("description")
+        category = data.get("category")
+        location = data.get("location")
+        county = data.get("county")
+        date = data.get("date")
+        time = data.get("time")
+        price = data.get("price")
+        total_tickets = data.get("total_tickets")
+        contact_email = data.get("contact_email")
+        image = data.get("image")
+
+        # Validation
+        required_fields = [
+            title,
+            organizer_name,
+            date,
+            time,
+            price,
+            total_tickets,
+            contact_email
+        ]
+
+        if not all(required_fields):
+            return JsonResponse({
+                "message": "Missing required fields"
+            }, status=400)
+
+        event = Event.objects.create(
+            user=user,
+            title=title,
+            organizer_name=organizer_name,
+            description=description,
+            category=category,
+            location=location,
+            county=county,
+            date=date,
+            time=time,
+            price=price,
+            total_tickets=total_tickets,
+            available_tickets=total_tickets,
+            contact_email=contact_email,
+            image=image if image else Event._meta.get_field("image").default
+        )
+
+        return JsonResponse({
+            "message": "Event created successfully",
+            "event": {
+                "id": event.id,
+                "title": event.title,
+                "organizer_name": event.organizer_name,
+                "description": event.description,
+                "category": event.category,
+                "location": event.location,
+                "county": event.county,
+                "date": str(event.date),
+                "time": str(event.time),
+                "price": event.price,
+                "total_tickets": event.total_tickets,
+                "available_tickets": event.available_tickets,
+                "contact_email": event.contact_email,
+                "image": event.image,
+                "created_at": event.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        }, status=201)
+
+    except Exception as e:
+        return JsonResponse({
+            "message": "Failed to create event",
+            "error": str(e)
+        }, status=500)
+
+
+
+# get all events api
+@api_view(['GET'])
+def get_all_events(request):
+    try:
+
+        events = Event.objects.all().order_by('-created_at')
+
+        # FILTERS
+        search = request.GET.get("search")
+        county = request.GET.get("county")
+        category = request.GET.get("category")
+        min_price = request.GET.get("minPrice")
+        max_price = request.GET.get("maxPrice")
+        date = request.GET.get("date")
+
+        # Search by title
+        if search:
+            events = events.filter(title__icontains=search)
+
+        # Filter by county
+        if county:
+            events = events.filter(county__icontains=county)
+
+        # Filter by category
+        if category:
+            events = events.filter(category__iexact=category)
+
+        # Filter by minimum price
+        if min_price:
+            events = events.filter(price__gte=min_price)
+
+        # Filter by maximum price
+        if max_price:
+            events = events.filter(price__lte=max_price)
+
+        # Filter by date
+        if date:
+            events = events.filter(date=date)
+
+        event_list = []
+
+        for event in events:
+
+            event_list.append({
+                "id": event.id,
+                "title": event.title,
+                "organizer_name": event.organizer_name,
+                "description": event.description,
+                "category": event.category,
+                "location": event.location,
+                "county": event.county,
+                "date": str(event.date),
+                "time": str(event.time),
+                "price": event.price,
+                "total_tickets": event.total_tickets,
+                "available_tickets": event.available_tickets,
+                "contact_email": event.contact_email,
+                "image": event.image,
+                "created_at": event.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+
+                "organizer": {
+                    "id": event.user.id,
+                    "name": event.user.name,
+                    "email": event.user.email,
+                    "phone_number": event.user.phone_number,
+                }
+            })
+
+        return JsonResponse({
+            "message": "Events fetched successfully",
+            "count": len(event_list),
+            "events": event_list
+        }, status=200)
+
+    except Exception as e:
+        return JsonResponse({
+            "message": "Failed to fetch events",
+            "error": str(e)
+        }, status=500)
