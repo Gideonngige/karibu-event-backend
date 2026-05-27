@@ -523,8 +523,6 @@ def create_event(request):
             "error": str(e)
         }, status=500)
 
-
-
 # get all events api
 @api_view(['GET'])
 def get_all_events(request):
