@@ -29,4 +29,7 @@ urlpatterns = [
 
     path("api/events/<int:id>", views.get_single_event, name="get_single_event"),
     path("api/events/book", views.book_event, name="book_event"),
+
+    path("api/events/organizer/",views.organizer_event_bookings, name="organizer_event_bookings"),
+    path("api/events/verify/",views.verify_ticket,name="verify_ticket"),
 ]

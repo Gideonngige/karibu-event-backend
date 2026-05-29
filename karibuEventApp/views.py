@@ -8,7 +8,7 @@ from .models import User, Event, Booking, Payment, Notification
 from rest_framework.parsers import MultiPartParser, FormParser
 
 from django.utils import timezone
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, F
 from decimal import Decimal
 from datetime import timedelta
 
@@ -46,6 +46,8 @@ import uuid
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated, BasePermission
+
+from rest_framework.permissions import AllowAny
 
 # indec page api
 def index(request):
@@ -700,12 +702,6 @@ def get_organizer_events(request):
 
 
 
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.db.models import Sum, F
-from .models import User, Event, Booking, Payment
-import json
-
 
 # =========================
 # CHECK ADMIN
@@ -966,12 +962,6 @@ def mark_payout_paid(request, id):
 
 
 
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-
-from .models import Event, Booking, Payment, User
-
 
 # ================================
 # GET SINGLE EVENT
@@ -1125,3 +1115,140 @@ def book_event(request):
             "success": False,
             "message": str(e)
         }, status=500)
+
+
+# views.py
+@api_view(["POST"])
+def organizer_event_bookings(request):
+
+    user_id = request.data.get("user_id")
+    event_id = request.data.get("event_id")
+
+    user = User.objects.filter(id=user_id, role="organizer").first()
+    if not user:
+        return Response({"message": "Unauthorized."},status=status.HTTP_403_FORBIDDEN)
+
+    try:
+        event = Event.objects.get(
+            id=event_id,
+            user=user
+        )
+
+    except Event.DoesNotExist:
+        return Response(
+            {"message": "Event not found."},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    bookings = Booking.objects.filter(
+        event=event
+    ).order_by("-created_at")
+
+    stats = {
+        "total": bookings.count(),
+        "confirmed": bookings.filter(status="confirmed").count(),
+        "used": bookings.filter(status="used").count(),
+        "cancelled": bookings.filter(status="cancelled").count(),
+    }
+
+    return Response({
+        "event": {
+            "id": event.id,
+            "title": event.title,
+            "date": event.date,
+            "time": event.time,
+        },
+
+        "stats": stats,
+
+        "bookings": [
+            {
+                "id": booking.id,
+                "guest_name": booking.guest_name,
+                "guest_email": booking.guest_email,
+                "phone_number": booking.phone_number,
+                "quantity": booking.quantity,
+                "total_amount": booking.total_amount,
+                "status": booking.status,
+            }
+            for booking in bookings
+        ]
+    })
+
+
+@api_view(["POST"])
+def verify_ticket(request):
+
+    booking_id = request.data.get("booking_id")
+    event_id = request.data.get("event_id")
+    user_id = request.data.get("user_id")
+
+    user = User.objects.filter(id=user_id, role="organizer").first()
+    if not user:
+        return Response({"message": "Unauthorized."},status=status.HTTP_403_FORBIDDEN)
+
+    try:
+        event = Event.objects.get(
+            id=event_id,
+            user=user
+        )
+
+    except Event.DoesNotExist:
+        return Response(
+            {
+                "valid": False,
+                "message": "Unauthorized."
+            },
+            status=403
+        )
+
+    try:
+        booking = Booking.objects.get(
+            id=booking_id,
+            event=event
+        )
+
+    except Booking.DoesNotExist:
+        return Response({
+            "valid": False,
+            "message": "Ticket not found."
+        })
+
+    if booking.status == "used":
+        return Response({
+            "valid": False,
+            "message": "Ticket already used.",
+            "booking": {
+                "id": booking.id,
+                "guest_name": booking.guest_name,
+                "guest_email": booking.guest_email,
+                "phone_number": booking.phone_number,
+                "quantity": booking.quantity,
+                "total_amount": booking.total_amount,
+                "status": booking.status,
+            }
+        })
+
+    if booking.status == "cancelled":
+        return Response({
+            "valid": False,
+            "message": "Ticket cancelled."
+        })
+
+    booking.status = "used"
+    booking.save()
+
+    return Response({
+        "valid": True,
+        "message": "Ticket verified successfully.",
+
+        "booking": {
+            "id": booking.id,
+            "guest_name": booking.guest_name,
+            "guest_email": booking.guest_email,
+            "phone_number": booking.phone_number,
+            "quantity": booking.quantity,
+            "total_amount": booking.total_amount,
+            "status": booking.status,
+        }
+    })
