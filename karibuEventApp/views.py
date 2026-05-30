@@ -930,6 +930,8 @@ def admin_payouts(request):
             total=Sum("amount")
         )["total"] or 0
 
+        payout_record = EventPayout.objects.filter(event=event).first()
+
         commission = float(paid_amount) * 0.05
         payable = float(paid_amount) - commission
 
@@ -941,7 +943,8 @@ def admin_payouts(request):
             "totalRevenue": float(paid_amount),
             "commission": float(commission),
             "payable": float(payable),
-            "isPaid": False,
+            "date": event.date,
+            "paymentStatus": payout_record.status if payout_record else "pending",
         })
 
     return JsonResponse({
@@ -1337,6 +1340,7 @@ def lipa_na_mpesa(phone_number, amount, booking_id, event_title):
 # =========================================
 
 @api_view(["POST"])
+@permission_classes([AllowAny])
 def book_event(request):
 
     try:
@@ -1586,6 +1590,7 @@ def send_event_payout(phone_number, amount, payout_id):
 # =========================================
 
 @api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def pay_event_organizer(request):
 
     try:
@@ -1593,9 +1598,14 @@ def pay_event_organizer(request):
         event = Event.objects.get(id=event_id)
 
         payout = EventPayout.objects.filter(event=event).first()
+        if payout:
+            print("Existing payout found:", payout.id, payout.status)
 
         if payout and payout.status == "paid":
             return Response({"message": "Already paid"}, status=400)
+        
+        if event.date > timezone.now().date():
+            return Response({"message": "Cannot payout before event ends"}, status=400)
 
         payable_amount = (event.total_tickets - event.available_tickets) * event.price
         commission = payable_amount * 0.05
@@ -1683,6 +1693,7 @@ def b2c_callback(request):
 
 
 @api_view(["GET"])
+@permission_classes([AllowAny])
 def booking_status(request, booking_id):
 
     booking = Booking.objects.get(id=booking_id)
