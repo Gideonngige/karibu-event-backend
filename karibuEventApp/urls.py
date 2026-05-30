@@ -28,8 +28,13 @@ urlpatterns = [
     path("api/admin/payouts/<int:id>/pay/", views.mark_payout_paid, name="mark_payout_paid"),
 
     path("api/events/<int:id>", views.get_single_event, name="get_single_event"),
-    path("api/events/book", views.book_event, name="book_event"),
+    path("api/events/book/", views.book_event, name="book_event"),
+    path("api/events/bookings/<int:booking_id>/status/", views.booking_status, name="booking_status"),
 
     path("api/events/organizer/",views.organizer_event_bookings, name="organizer_event_bookings"),
     path("api/events/verify/",views.verify_ticket,name="verify_ticket"),
+
+    path("mpesa_callback/", views.mpesa_callback, name="mpesa_callback"),
+    path("api/admin/pay_event_organizer/", views.pay_event_organizer, name="pay_event_organizer"),
+    path("b2c_callback/", views.b2c_callback, name="b2c_callback"),
 ]

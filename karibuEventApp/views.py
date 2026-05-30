@@ -4,7 +4,7 @@ from django.http import HttpResponse, JsonResponse
 from rest_framework.decorators import api_view, parser_classes, permission_classes
 from django.views.decorators.csrf import csrf_exempt
 
-from .models import User, Event, Booking, Payment, Notification
+from .models import User, Event, Booking, Payment, Notification, EventPayout
 from rest_framework.parsers import MultiPartParser, FormParser
 
 from django.utils import timezone
@@ -17,7 +17,7 @@ from django.utils.timesince import timesince
 
 from django.db.models.functions import TruncMonth
 
-from .utils import send_email
+from .utils import send_email, normalize_phone
 import requests
 
 import base64
@@ -48,6 +48,13 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated, BasePermission
 
 from rest_framework.permissions import AllowAny
+
+import requests
+import base64
+import datetime
+
+from dotenv import load_dotenv
+load_dotenv()
 
 # indec page api
 def index(request):
@@ -1005,116 +1012,116 @@ def get_single_event(request, id):
 # ================================
 # BOOK EVENT
 # ================================
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def book_event(request):
-    try:
-        data = request.data
+# @api_view(["POST"])
+# @permission_classes([AllowAny])
+# def book_event(request):
+#     try:
+#         data = request.data
 
-        user_id = data.get("userId")
-        event_id = data.get("eventId")
-        quantity = int(data.get("quantity", 1))
-        phone_number = data.get("phoneNumber")
+#         user_id = data.get("userId")
+#         event_id = data.get("eventId")
+#         quantity = int(data.get("quantity", 1))
+#         phone_number = data.get("phoneNumber")
 
-        guest_name = data.get("guestName")
-        guest_email = data.get("guestEmail")
+#         guest_name = data.get("guestName")
+#         guest_email = data.get("guestEmail")
 
-        # Validate event
-        try:
-            event = Event.objects.get(id=event_id)
-        except Event.DoesNotExist:
-            return Response({
-                "success": False,
-                "message": "Event not found."
-            }, status=404)
+#         # Validate event
+#         try:
+#             event = Event.objects.get(id=event_id)
+#         except Event.DoesNotExist:
+#             return Response({
+#                 "success": False,
+#                 "message": "Event not found."
+#             }, status=404)
 
-        # Validate tickets
-        if event.available_tickets < quantity:
-            return Response({
-                "success": False,
-                "message": "Not enough tickets available."
-            }, status=400)
+#         # Validate tickets
+#         if event.available_tickets < quantity:
+#             return Response({
+#                 "success": False,
+#                 "message": "Not enough tickets available."
+#             }, status=400)
 
-        # Logged in user
-        user = None
-        if user_id:
-            try:
-                user = User.objects.get(id=user_id)
+#         # Logged in user
+#         user = None
+#         if user_id:
+#             try:
+#                 user = User.objects.get(id=user_id)
 
-                guest_name = user.name
-                guest_email = user.email
+#                 guest_name = user.name
+#                 guest_email = user.email
 
-            except User.DoesNotExist:
-                pass
+#             except User.DoesNotExist:
+#                 pass
 
-        # Guest validation
-        if not guest_name:
-            return Response({
-                "success": False,
-                "message": "Guest name is required."
-            }, status=400)
+#         # Guest validation
+#         if not guest_name:
+#             return Response({
+#                 "success": False,
+#                 "message": "Guest name is required."
+#             }, status=400)
 
-        if not guest_email:
-            return Response({
-                "success": False,
-                "message": "Guest email is required."
-            }, status=400)
+#         if not guest_email:
+#             return Response({
+#                 "success": False,
+#                 "message": "Guest email is required."
+#             }, status=400)
 
-        total_amount = quantity * event.price
+#         total_amount = quantity * event.price
 
-        # Create booking
-        booking = Booking.objects.create(
-            user=str(user.id) if user else None,
-            event=event,
-            guest_name=guest_name,
-            guest_email=guest_email,
-            quantity=quantity,
-            total_amount=total_amount,
-            phone_number=phone_number,
-            status="confirmed"
-        )
+#         # Create booking
+#         booking = Booking.objects.create(
+#             user=str(user.id) if user else None,
+#             event=event,
+#             guest_name=guest_name,
+#             guest_email=guest_email,
+#             quantity=quantity,
+#             total_amount=total_amount,
+#             phone_number=phone_number,
+#             status="confirmed"
+#         )
 
-        # Reduce tickets
-        event.available_tickets -= quantity
-        event.save()
+#         # Reduce tickets
+#         event.available_tickets -= quantity
+#         event.save()
 
-        booking.save()
+#         booking.save()
 
-        # Create payment record
-        Payment.objects.create(
-            booking=booking,
-            method="M-Pesa",
-            amount=total_amount,
-            phone_number=phone_number,
-            status="paid"
-        )
+#         # Create payment record
+#         Payment.objects.create(
+#             booking=booking,
+#             method="M-Pesa",
+#             amount=total_amount,
+#             phone_number=phone_number,
+#             status="paid"
+#         )
 
-        return Response({
-            "success": True,
-            "message": "Booking successful.",
-            "booking": {
-                "id": booking.id,
-                "guestName": booking.guest_name,
-                "guestEmail": booking.guest_email,
-                "quantity": booking.quantity,
-                "totalAmount": booking.total_amount,
-                "phoneNumber": booking.phone_number,
-                "status": booking.status,
-                "createdAt": booking.created_at,
-            },
-            "event": {
-                "id": event.id,
-                "title": event.title,
-                "date": event.date,
-                "location": event.location,
-            }
-        })
+#         return Response({
+#             "success": True,
+#             "message": "Booking successful.",
+#             "booking": {
+#                 "id": booking.id,
+#                 "guestName": booking.guest_name,
+#                 "guestEmail": booking.guest_email,
+#                 "quantity": booking.quantity,
+#                 "totalAmount": booking.total_amount,
+#                 "phoneNumber": booking.phone_number,
+#                 "status": booking.status,
+#                 "createdAt": booking.created_at,
+#             },
+#             "event": {
+#                 "id": event.id,
+#                 "title": event.title,
+#                 "date": event.date,
+#                 "location": event.location,
+#             }
+#         })
 
-    except Exception as e:
-        return Response({
-            "success": False,
-            "message": str(e)
-        }, status=500)
+#     except Exception as e:
+#         return Response({
+#             "success": False,
+#             "message": str(e)
+#         }, status=500)
 
 
 # views.py
@@ -1250,5 +1257,449 @@ def verify_ticket(request):
             "quantity": booking.quantity,
             "total_amount": booking.total_amount,
             "status": booking.status,
+        }
+    })
+
+
+# =========================================
+# GET ACCESS TOKEN
+# =========================================
+
+def get_access_token():
+    try:
+        response = requests.get(
+            "https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials",
+            auth=(os.environ.get("MPESA_CONSUMER_KEY"), os.environ.get("MPESA_CONSUMER_SECRET"))
+        )
+
+        data = response.json()
+
+        return data.get("access_token")
+
+    except Exception as e:
+        print("ACCESS TOKEN ERROR:", e)
+        return None
+
+
+# =========================================
+# STK PUSH FUNCTION
+# CUSTOMER PAYS FOR EVENT
+# =========================================
+
+def lipa_na_mpesa(phone_number, amount, booking_id, event_title):
+
+    amount = int(amount)
+
+    access_token = get_access_token()
+
+    if not access_token:
+        return {"success": False, "message": "Failed to get access token"}
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+
+    password = base64.b64encode(
+        f"{os.environ.get('MPESA_SHORTCODE')}{os.environ.get('MPESA_PASSKEY')}{timestamp}".encode()
+    ).decode()
+
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+    # normalize phone number to 2547XXXXXXXX
+    phone_number = normalize_phone(phone_number)
+
+    payload = {
+        "BusinessShortCode": os.environ.get('MPESA_SHORTCODE'),
+        "Password": password,
+        "Timestamp": timestamp,
+        "TransactionType": "CustomerPayBillOnline",
+        "Amount": amount,
+        "PartyA": phone_number,
+        "PartyB": os.environ.get('MPESA_SHORTCODE'),
+        "PhoneNumber": phone_number,
+        "CallBackURL": os.environ.get('MPESA_CALLBACK_URL'),
+        "AccountReference": f"{event_title}-{booking_id}",
+        "TransactionDesc": f"Ticket Payment - {event_title}"
+    }
+
+    response = requests.post(
+        os.environ.get('STK_PUSH_URL'),
+        json=payload,
+        headers=headers
+    )
+
+    data = response.json()
+
+    return data
+
+
+# =========================================
+# BOOK EVENT API
+# =========================================
+
+@api_view(["POST"])
+def book_event(request):
+
+    try:
+        data = request.data
+
+        event_id = data.get("eventId")
+        quantity = int(data.get("quantity"))
+        phone_number = data.get("phoneNumber")
+        guest_name = data.get("guestName")
+        guest_email = data.get("guestEmail")
+        user_id = data.get("userId")
+
+        # =========================
+        # VALIDATE EVENT
+        # =========================
+
+        try:
+            event = Event.objects.get(id=event_id)
+
+        except Event.DoesNotExist:
+            return Response(
+                {"message": "Event not found"},
+                status=404
+            )
+
+        # =========================
+        # CHECK TICKETS
+        # =========================
+
+        if event.available_tickets < quantity:
+            return Response(
+                {"message": "Not enough tickets available"},
+                status=400
+            )
+
+        total_amount = quantity * event.price
+
+        # =========================
+        # CREATE BOOKING
+        # =========================
+
+        booking = Booking.objects.create(
+            user=user_id if user_id else None,
+            event=event,
+            guest_name=guest_name,
+            guest_email=guest_email,
+            phone_number=phone_number,
+            quantity=quantity,
+            total_amount=total_amount,
+            status="pending"
+        )
+
+        Payment.objects.create(
+            booking=booking,
+            method="M-Pesa",
+            amount=total_amount,
+            phone_number=phone_number,
+            status="pending"
+        )
+
+        # =========================
+        # SEND STK PUSH
+        # =========================
+
+        stk_response = lipa_na_mpesa(
+            phone_number=phone_number,
+            amount=total_amount,
+            booking_id=booking.id,
+            event_title=event.title
+        )
+
+        checkout_request_id = stk_response.get("CheckoutRequestID")
+
+        payment = Payment.objects.get(booking=booking)
+        payment.checkout_request_id = checkout_request_id
+        payment.save()
+
+        return Response({
+            "success": True,
+            "message": "STK Push sent successfully",
+            "booking": {
+                "id": booking.id,
+                "guestName": booking.guest_name,
+                "guestEmail": booking.guest_email,
+                "quantity": booking.quantity,
+                "totalAmount": booking.total_amount,
+            },
+            "event": {
+                "id": event.id,
+                "title": event.title,
+                "date": event.date,
+            },
+            "mpesa": stk_response
+        })
+
+    except Exception as e:
+        print("BOOK EVENT ERROR:", e)
+
+        return Response(
+            {"message": str(e)},
+            status=500
+        )
+
+
+# =========================================
+# MPESA CALLBACK
+# =========================================
+
+@csrf_exempt
+@api_view(["POST"])
+def mpesa_callback(request):
+
+    try:
+        data = json.loads(request.body)
+
+        stk = data.get("Body", {}).get("stkCallback", {})
+
+        result_code = stk.get("ResultCode")
+        checkout_request_id = stk.get("CheckoutRequestID")
+
+        payment = Payment.objects.filter(
+            checkout_request_id=checkout_request_id
+        ).first()
+
+        if not payment:
+            return JsonResponse({
+                "ResultCode": 1,
+                "ResultDesc": "Payment not found"
+            })
+
+        # =========================
+        # PAYMENT SUCCESS
+        # =========================
+
+        if result_code == 0:
+
+            metadata = stk.get(
+                "CallbackMetadata",
+                {}
+            ).get("Item", [])
+
+            meta = {
+                item["Name"]: item.get("Value")
+                for item in metadata
+            }
+
+            payment.status = "paid"
+            payment.mpesa_receipt_number = meta.get("MpesaReceiptNumber")
+            payment.paid_at = timezone.now()
+
+            payment.save()
+
+            # =========================
+            # REDUCE TICKETS
+            # =========================
+
+            event = payment.booking.event
+
+            event.available_tickets -= payment.booking.quantity
+
+            if event.available_tickets < 0:
+                event.available_tickets = 0
+
+            event.save()
+            # mark booking as confirmed
+            booking = payment.booking
+            booking.status = "confirmed"
+            booking.save()
+
+        else:
+
+            payment.status = "failed"
+            payment.save()
+
+        return JsonResponse({
+            "ResultCode": 0,
+            "ResultDesc": "Accepted"
+        })
+
+    except Exception as e:
+
+        print("MPESA CALLBACK ERROR:", e)
+
+        return JsonResponse({
+            "ResultCode": 1,
+            "ResultDesc": "Server Error"
+        })
+
+
+# =========================================
+# B2C PAY EVENT ORGANIZER
+# ADMIN SENDS MONEY
+# =========================================
+
+def send_event_payout(phone_number, amount, payout_id):
+
+    amount = int(amount)
+
+    access_token = get_access_token()
+
+    if not access_token:
+        return {
+            "success": False,
+            "message": "Failed to get access token"
+        }
+
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    originator_conversation_id = str(uuid.uuid4())
+    # normalize phone number to 2547XXXXXXXX
+    phone_number = normalize_phone(phone_number)
+
+    payload = {
+        "OriginatorConversationID": originator_conversation_id,
+        "InitiatorName": os.environ.get("MPESA_INITIATOR_NAME"),
+        "SecurityCredential": os.environ.get("MPESA_SECURITY_CREDENTIAL"),
+        "CommandID": "BusinessPayment",
+        "Amount": amount,
+        "PartyA": os.environ.get("MPESA_B2C_SHORTCODE"),
+        "PartyB": phone_number,
+        "Remarks": "Event Organizer Payout",
+        "QueueTimeOutURL": os.environ.get("MPESA_B2C_CALLBACK_URL"),
+        "ResultURL": os.environ.get("MPESA_B2C_CALLBACK_URL"),
+        "Occasion": "Event Payout"
+    }
+
+    response = requests.post(
+        os.environ.get("B2C_URL"),
+        json=payload,
+        headers=headers
+    )
+
+    data = response.json()
+
+    payout = EventPayout.objects.get(id=payout_id)
+
+    payout.originator_conversation_id = originator_conversation_id
+    payout.save()
+
+    return data
+
+
+# =========================================
+# ADMIN PAY ORGANIZER API
+# =========================================
+
+@api_view(["POST"])
+def pay_event_organizer(request):
+
+    try:
+        event_id = request.data.get("event_id")
+        event = Event.objects.get(id=event_id)
+
+        payout = EventPayout.objects.filter(event=event).first()
+
+        if payout and payout.status == "paid":
+            return Response({"message": "Already paid"}, status=400)
+
+        payable_amount = (event.total_tickets - event.available_tickets) * event.price
+        commission = payable_amount * 0.05
+        payable_amount -= commission
+
+        # create payout record if not exists
+        new_payout = EventPayout.objects.create(
+            event=event,
+            amount=payable_amount,
+            commission=commission,
+            status="pending"
+        )
+
+        response = send_event_payout(
+            phone_number=event.user.phone_number,
+            amount=payable_amount,
+            payout_id=new_payout.id
+        )
+
+        return Response({
+            "success": True,
+            "message": "Payout initiated",
+            "mpesa": response
+        })
+
+    except EventPayout.DoesNotExist:
+        return Response({
+            "message": "Payout not found"
+        }, status=404)
+
+    except Exception as e:
+        print("PAYOUT ERROR:", e)
+        return Response({ "message": str(e)}, status=500)
+
+
+# =========================================
+# B2C CALLBACK
+# =========================================
+
+@csrf_exempt
+@api_view(["POST"])
+def b2c_callback(request):
+
+    try:
+
+        data = json.loads(request.body)
+
+        result = data.get("Result", {})
+
+        result_code = result.get("ResultCode")
+
+        originator_id = result.get("OriginatorConversationID")
+
+        transaction_id = result.get("TransactionID")
+
+        payout = EventPayout.objects.filter(originator_conversation_id=originator_id).first()
+
+        if not payout:
+            return JsonResponse({"ResultCode": 1, "ResultDesc": "Payout not found"})
+        
+        # 2040 for testing in sandbox, 0 for production
+        if result_code == 2040 or result_code == 0:
+            payout.status = "paid"
+
+        else:
+            payout.status = "failed"
+
+        payout.transaction_id = transaction_id
+        payout.result_code = result_code
+        payout.save()
+
+        return JsonResponse({
+            "ResultCode": 0,
+            "ResultDesc": "Accepted"
+        })
+
+    except Exception as e:
+
+        print("B2C CALLBACK ERROR:", e)
+
+        return JsonResponse({
+            "ResultCode": 1,
+            "ResultDesc": "Server Error"
+        })
+
+
+@api_view(["GET"])
+def booking_status(request, booking_id):
+
+    booking = Booking.objects.get(id=booking_id)
+    if not booking:
+        return Response({"message": "Booking not found"}, status=404)
+    payment = Payment.objects.filter(booking=booking).first()
+    if not payment:
+        return Response({"message": "Payment not found"}, status=404)
+
+    return Response({
+        "booking_id": booking.id,
+        "payment_status": payment.status if payment else "not found",
+        "guest_name": booking.guest_name,
+        "quantity": booking.quantity,
+        "total_amount": booking.total_amount,
+        "event": {
+            "title": booking.event.title,
+            "date": booking.event.date
         }
     })
